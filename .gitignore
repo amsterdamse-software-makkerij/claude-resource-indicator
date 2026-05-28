@@ -1,5 +1,25 @@
+# Build artifacts
 .build/
 build/
 *.xcodeproj
 .DS_Store
 .swiftpm/
+
+# Secrets / credentials — never commit these (defense-in-depth)
+.env
+.env.*
+*.pem
+*.key
+*.p8
+*.p12
+*.cer
+*.mobileprovision
+*.keychain
+*.keychain-db
+*-credentials.json
+credentials.json
+secrets.*
+*.secret
+.netrc
+id_rsa
+id_ed25519
