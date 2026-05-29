@@ -3,6 +3,7 @@ BINNAME   := ClaudeResourceIndicator
 APPNAME   := Claude Resource Indicator
 BUNDLE    := build/$(APPNAME).app
 BUILT_BIN := $(shell swift build -c $(CONFIG) --show-bin-path)/$(BINNAME)
+LSREGISTER := /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister
 
 .PHONY: build app run install selftest icon universal dist dmg clean
 
@@ -20,6 +21,7 @@ app: build
 	@if [ -f Resources/AppIcon.icns ]; then cp Resources/AppIcon.icns "$(BUNDLE)/Contents/Resources/AppIcon.icns"; fi
 	xattr -cr "$(BUNDLE)"
 	codesign --force --sign - "$(BUNDLE)"
+	@touch "$(BUNDLE)"; "$(LSREGISTER)" -f "$(BUNDLE)" 2>/dev/null || true
 	@echo "Built $(BUNDLE)"
 
 universal:
@@ -32,6 +34,7 @@ universal:
 	@if [ -f Resources/AppIcon.icns ]; then cp Resources/AppIcon.icns "$(BUNDLE)/Contents/Resources/AppIcon.icns"; fi
 	xattr -cr "$(BUNDLE)"
 	codesign --force --sign - "$(BUNDLE)"
+	@touch "$(BUNDLE)"; "$(LSREGISTER)" -f "$(BUNDLE)" 2>/dev/null || true
 	@echo "Built universal $(BUNDLE)"
 	@lipo -archs "$(BUNDLE)/Contents/MacOS/$(BINNAME)"
 

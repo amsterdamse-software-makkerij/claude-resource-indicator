@@ -10,7 +10,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private let menu = NSMenu()
 
     private var hostingView: NSHostingView<MenuContentView>!
-    private var launchItem: NSMenuItem!
+    private var launchToggle: ToggleMenuItemView!
     private var cancellable: AnyCancellable?
 
     private let contentWidth: CGFloat = 264
@@ -41,8 +41,15 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
         menu.addItem(.separator())
 
-        launchItem = NSMenuItem(title: "Launch at Login", action: #selector(toggleLaunch), keyEquivalent: "")
-        launchItem.target = self
+        let launchItem = NSMenuItem()
+        launchToggle = ToggleMenuItemView(title: "Launch at Login",
+                                          width: contentWidth,
+                                          isOn: loginItem.isEnabled) { [weak self] isOn in
+            guard let self else { return }
+            self.loginItem.set(isOn)
+            self.launchToggle.setOn(self.loginItem.isEnabled)
+        }
+        launchItem.view = launchToggle
         menu.addItem(launchItem)
 
         menu.addItem(.separator())
@@ -61,13 +68,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     func menuWillOpen(_ menu: NSMenu) {
         model.refresh(.open)
         loginItem.refreshStatus()
-        launchItem.state = loginItem.isEnabled ? .on : .off
+        launchToggle.setOn(loginItem.isEnabled)
+        launchToggle.applyControlAppearance()
         sizeContentToFit()
-    }
-
-    @objc private func toggleLaunch() {
-        loginItem.set(!loginItem.isEnabled)
-        launchItem.state = loginItem.isEnabled ? .on : .off
     }
 
     @objc private func quit() { NSApp.terminate(nil) }
