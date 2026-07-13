@@ -13,7 +13,12 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private var launchToggle: ToggleMenuItemView!
     private var cancellable: AnyCancellable?
 
-    private let contentWidth: CGFloat = 264
+    // E1: remember what the button is currently showing so a steady poll that
+    // returns identical utilization doesn't trigger a fresh off-screen ring draw.
+    private var lastRenderedFractions: [Double]?
+    private var lastTooltip: String?
+
+    private let contentWidth = MenuContentView.contentWidth
 
     init(model: AppModel) {
         self.model = model
@@ -66,11 +71,16 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     func menuWillOpen(_ menu: NSMenu) {
+        model.isMenuOpen = true
         model.refresh(.open)
         loginItem.refreshStatus()
         launchToggle.setOn(loginItem.isEnabled)
         launchToggle.applyControlAppearance()
         sizeContentToFit()
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        model.isMenuOpen = false
     }
 
     @objc private func quit() { NSApp.terminate(nil) }
@@ -79,8 +89,21 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     private func renderStatusIcon(_ state: LoadState) {
         guard let button = statusItem.button else { return }
-        button.image = RingRenderer.image(for: ringSpecs(for: state))
-        button.toolTip = tooltip(for: state)
+        let specs = ringSpecs(for: state)
+        let fractions = specs.map(\.fraction)
+        let tip = tooltip(for: state)
+
+        // E1: the image (rings) and tooltip are the only visible output. If both
+        // are unchanged, rebuilding the NSImage would be a full off-screen
+        // CoreGraphics draw for zero visual change — skip it. The tooltip is part
+        // of the signature so state-only transitions (e.g. .loaded -> .offline
+        // with the same last-known numbers) still update it.
+        if fractions == lastRenderedFractions && tip == lastTooltip { return }
+        lastRenderedFractions = fractions
+        lastTooltip = tip
+
+        button.image = RingRenderer.image(for: specs)
+        button.toolTip = tip
     }
 
     private func ringSpecs(for state: LoadState) -> [RingSpec] {
@@ -88,7 +111,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         // by the tooltip and the menu's sync note. States with no data show an
         // empty ring.
         guard let snapshot = state.snapshot else { return [] }
-        return snapshot.values.map { RingSpec(fraction: $0.utilization / 100) }
+        return snapshot.values.map { RingSpec(fraction: $0.fraction) }
     }
 
     private func tooltip(for state: LoadState) -> String {

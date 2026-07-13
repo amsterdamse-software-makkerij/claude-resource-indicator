@@ -1,13 +1,15 @@
+import Combine
 import SwiftUI
 
 // The custom view embedded at the top of the status-item menu. Actions
 // (Refresh / Launch at login / Quit) are native NSMenuItems, not part of this.
 struct MenuContentView: View {
+    // Single source of truth for the menu content width, shared with the status
+    // item controller so the two can't drift apart (U2).
+    static let contentWidth: CGFloat = 264
+
     @ObservedObject var model: AppModel
     @State private var now = Date()
-
-    private let tick = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
-    private let width: CGFloat = 264
 
     // Only surface the sync note once the displayed numbers are genuinely old —
     // a single failed poll/open right after a good fetch shouldn't alarm.
@@ -27,7 +29,7 @@ struct MenuContentView: View {
         .padding(.horizontal, 14)
         .padding(.top, 10)
         .padding(.bottom, 12)
-        .frame(width: width)
+        .frame(width: Self.contentWidth)
         .overlay(alignment: .topTrailing) {
             if let plan = planLabel {
                 PlanPill(text: plan)
@@ -36,7 +38,15 @@ struct MenuContentView: View {
             }
         }
         .onAppear { now = Date() }
-        .onReceive(tick) { now = $0 }
+        .background {
+            // E2: the reset countdown/staleness note only need a live clock while
+            // the menu is actually open. Mounting the ticker conditionally means
+            // its Timer publisher exists only then — no 30s run-loop wakeups all
+            // day while the dropdown is hidden.
+            if model.isMenuOpen {
+                TimerTicker { now = Date() }
+            }
+        }
     }
 
     private var planLabel: String? {
@@ -100,6 +110,22 @@ struct MenuContentView: View {
     }
 }
 
+// A zero-size view that fires `onTick` on an interval, but only while it's part
+// of the hierarchy. The @State autoconnect publisher connects when this view is
+// mounted and is torn down when it's removed — so the caller can start/stop the
+// timer purely by conditionally including the view. It ticks once immediately on
+// appear so the countdown is current the moment the menu opens.
+private struct TimerTicker: View {
+    let onTick: () -> Void
+    @State private var timer = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        Color.clear
+            .onAppear { onTick() }
+            .onReceive(timer) { _ in onTick() }
+    }
+}
+
 struct UsageContentView: View {
     let snapshot: UsageSnapshot
     let note: SyncNote?
@@ -144,9 +170,10 @@ struct WatchRingsView: View {
     let values: [MetricValue]
     let now: Date
 
-    private let outerSize: CGFloat = 78
-    private let lineWidth: CGFloat = 9
-    private let step: CGFloat = 21
+    // U2: ring geometry scales with the user's Dynamic Type setting.
+    @ScaledMetric(relativeTo: .body) private var outerSize: CGFloat = 78
+    @ScaledMetric(relativeTo: .body) private var lineWidth: CGFloat = 9
+    @ScaledMetric(relativeTo: .body) private var step: CGFloat = 21
 
     var body: some View {
         ZStack {
@@ -163,7 +190,7 @@ struct WatchRingsView: View {
             Circle()
                 .stroke(Theme.trackColor.opacity(0.25), lineWidth: lineWidth)
             Circle()
-                .trim(from: 0, to: min(1, value.utilization / 100))
+                .trim(from: 0, to: value.fraction)
                 .stroke(Theme.color(forUtilization: value.utilization),
                         style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                 .rotationEffect(.degrees(-90))
@@ -176,9 +203,9 @@ struct WatchRingsView: View {
         if let primary = values.first {
             VStack(spacing: 0) {
                 Text(percentText(primary.utilization))
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.system(.title3, design: .default).weight(.semibold))
                     .monospacedDigit()
-                Text(primary.metric.shortLabel == "S" ? "5h" : primary.metric.shortLabel)
+                Text(primary.metric.windowLabel)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -194,9 +221,18 @@ struct BarRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(value.metric.title).font(.subheadline)
-                Spacer()
+            HStack(spacing: 4) {
+                Text(value.metric.title)
+                    .font(.subheadline)
+                    .fixedSize(horizontal: false, vertical: true)   // wrap, don't truncate (U2)
+                Spacer(minLength: 4)
+                // U1: a non-color cue in the red zone, so severity isn't hue-only.
+                if Theme.isCritical(value.utilization) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(color)
+                        .accessibilityLabel("Near limit")
+                }
                 Text(percentText(value.utilization))
                     .font(.subheadline)
                     .monospacedDigit()
@@ -206,7 +242,7 @@ struct BarRow: View {
                 ZStack(alignment: .leading) {
                     Capsule().fill(Theme.trackColor.opacity(0.25))
                     Capsule().fill(color)
-                        .frame(width: geo.size.width * CGFloat(min(1, value.utilization / 100)))
+                        .frame(width: geo.size.width * CGFloat(value.fraction))
                 }
             }
             .frame(height: 6)
@@ -264,7 +300,7 @@ struct MessageView: View {
     var body: some View {
         VStack(spacing: 8) {
             Image(systemName: info.symbol)
-                .font(.system(size: 26))
+                .font(.largeTitle)
                 .foregroundStyle(.secondary)
             Text(info.title).font(.headline)
             Text(info.subtitle)

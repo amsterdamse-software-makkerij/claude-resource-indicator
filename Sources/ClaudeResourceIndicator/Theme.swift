@@ -19,6 +19,10 @@ enum Theme {
         Color(nsColor: nsColor(forUtilization: u))
     }
 
+    // Whether a metric is in the red zone — used to add a non-color (shape) cue
+    // so severity isn't conveyed by hue alone (U1).
+    static func isCritical(_ u: Double) -> Bool { u >= redThreshold }
+
     static let trackColor = Color(nsColor: .tertiaryLabelColor)
 }
 

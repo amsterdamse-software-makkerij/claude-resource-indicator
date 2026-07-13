@@ -3,6 +3,19 @@ import Foundation
 enum UsageService {
     static let endpoint = URL(string: "https://api.anthropic.com/api/oauth/usage")!
 
+    // Only skip the request locally when the token is clearly past expiry; near
+    // the boundary we defer to the server's 401/403 (D5).
+    private static let expiryLeeway: TimeInterval = 300
+
+    // S1: a private ephemeral session for this Bearer-token request — no shared
+    // cache/cookie/credential storage, and never serve a cached response.
+    private static let session: URLSession = {
+        let config = URLSessionConfiguration.ephemeral
+        config.urlCache = nil
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        return URLSession(configuration: config)
+    }()
+
     // Runs the full pipeline once: keychain -> network -> parse -> normalize.
     // Returns a LoadState ready for the UI. `lastKnown` lets transient failures
     // keep showing the previous numbers (dimmed) instead of blanking out.
@@ -16,7 +29,7 @@ enum UsageService {
             return .error(message: "Couldn't read credentials", lastKnown: lastKnown)
         }
 
-        if creds.isExpired {
+        if creds.isExpired(skew: expiryLeeway) {
             // Read-only policy: never refresh the shared token ourselves.
             return .expired(lastKnown: lastKnown)
         }
@@ -32,7 +45,7 @@ enum UsageService {
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await URLSession.shared.data(for: request)
+            (data, response) = try await session.data(for: request)
         } catch {
             return .offline(lastKnown: lastKnown)
         }
@@ -47,13 +60,20 @@ enum UsageService {
         case 401, 403:
             return .expired(lastKnown: lastKnown)
         case 429:
-            let retry = (http.value(forHTTPHeaderField: "Retry-After")).flatMap { Double($0) }
+            let retry = retryAfterSeconds(http.value(forHTTPHeaderField: "Retry-After"))
             return .rateLimited(retryAfter: retry, lastKnown: lastKnown)
         case 500...599:
             // Transient server-side; treat like a network blip.
             return .offline(lastKnown: lastKnown)
         default:
             return .error(message: "HTTP \(http.statusCode)", lastKnown: lastKnown)
+        }
+
+        // D4: a 200 with a non-JSON body (captive portal / proxy HTML) or an empty
+        // body isn't usage data — treat it as a transient blip, not a schema-drift
+        // parse error. (An empty JSON object `{}` still decodes to .noSubscription.)
+        guard looksLikeJSONBody(contentType: http.value(forHTTPHeaderField: "Content-Type"), data: data) else {
+            return .offline(lastKnown: lastKnown)
         }
 
         guard let parsed = try? decoder.decode(UsageResponse.self, from: data) else {
@@ -88,6 +108,36 @@ enum UsageService {
                                      plan: creds.subscriptionType, fetchedAt: Date())
         return .loaded(snapshot)
     }
+
+    // Retry-After is usually integer delta-seconds, but RFC 7231 also allows an
+    // HTTP-date. Parse both; return nil (→ local exponential backoff) for anything
+    // unrecognized (D3). Anthropic currently sends integer seconds, so the date
+    // path is defensive.
+    static func retryAfterSeconds(_ header: String?, now: Date = Date()) -> TimeInterval? {
+        guard let header = header?.trimmingCharacters(in: .whitespaces), !header.isEmpty else { return nil }
+        if let seconds = Double(header) { return max(0, seconds) }
+        if let date = httpDateFormatter.date(from: header) { return max(0, date.timeIntervalSince(now)) }
+        return nil
+    }
+
+    // True when a 200 body is plausibly the JSON we expect. An empty body is
+    // rejected; a present, non-JSON Content-Type (captive portal / proxy HTML) is
+    // rejected; an absent Content-Type is treated leniently so servers that omit
+    // it but return JSON still decode (D4).
+    static func looksLikeJSONBody(contentType: String?, data: Data) -> Bool {
+        guard !data.isEmpty else { return false }
+        guard let contentType else { return true }
+        return contentType.lowercased().contains("json")
+    }
+
+    // RFC 7231 IMF-fixdate, e.g. "Sun, 06 Nov 1994 08:49:37 GMT".
+    private static let httpDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "GMT")
+        f.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
+        return f
+    }()
 
     private static let decoder: JSONDecoder = {
         let d = JSONDecoder()

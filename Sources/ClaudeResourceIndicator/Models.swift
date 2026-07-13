@@ -43,14 +43,36 @@ enum Metric: Int, CaseIterable, Sendable {
 
     // Session resets within hours (relative); weekly windows show a weekday + time.
     var resetStyle: ResetStyle { self == .session ? .relative : .weekday }
+
+    // The window length shown in the ring center — a display string kept in the
+    // model rather than special-cased against shortLabel in the view (Q1).
+    var windowLabel: String {
+        switch self {
+        case .session: return "5h"
+        case .weekly:  return "7d"
+        case .opus:    return "7d"
+        }
+    }
 }
 
 enum ResetStyle { case relative, weekday }
 
 struct MetricValue: Sendable {
     let metric: Metric
-    let utilization: Double   // 0...100
+    let utilization: Double   // clamped 0...100 at construction
     let resetsAt: Date?
+
+    // Clamp at the single normalization point (D1): the endpoint is undocumented,
+    // so a >100 overage, a negative sentinel, or a 0–1 fraction shouldn't reach the
+    // ring/percent math. `fraction` is then 0...1 by construction — the one place
+    // the 0–1 conversion lives (Q2), instead of `min(1, util/100)` copy-pasted around.
+    init(metric: Metric, utilization: Double, resetsAt: Date?) {
+        self.metric = metric
+        self.utilization = max(0, min(100, utilization))
+        self.resetsAt = resetsAt
+    }
+
+    var fraction: Double { utilization / 100 }
 }
 
 // A successfully fetched, normalized snapshot.

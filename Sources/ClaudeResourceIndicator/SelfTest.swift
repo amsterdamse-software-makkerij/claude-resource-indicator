@@ -2,6 +2,8 @@ import Foundation
 
 // Headless end-to-end check of the data pipeline (keychain -> network -> parse).
 // Run via `make selftest`. Prints the resolved state and exits.
+// B1: compiled into DEBUG builds only — not shipped in release.
+#if DEBUG
 enum SelfTest {
     static func run() {
         print("== Claude Resource Indicator self-test ==")
@@ -49,3 +51,4 @@ enum SelfTest {
         }
     }
 }
+#endif
