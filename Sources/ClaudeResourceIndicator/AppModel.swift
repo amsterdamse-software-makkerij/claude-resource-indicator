@@ -136,8 +136,8 @@ final class AppModel: ObservableObject {
 
     private func schedulePolling() {
         timer?.invalidate()
-        let t = Timer(timeInterval: pollInterval, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.pollIfActive() }
+        let t = Timer(timeInterval: pollInterval, repeats: true) { _ in
+            Task { @MainActor [weak self] in self?.pollIfActive() }
         }
         // E3: let the kernel coalesce this all-day wakeup with other timers.
         t.tolerance = pollInterval * 0.1
@@ -160,11 +160,11 @@ final class AppModel: ObservableObject {
 
     private func observeSystem() {
         let nc = NSWorkspace.shared.notificationCenter
-        nc.addObserver(forName: NSWorkspace.screensDidSleepNotification, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.isAsleep = true }
+        nc.addObserver(forName: NSWorkspace.screensDidSleepNotification, object: nil, queue: .main) { _ in
+            Task { @MainActor [weak self] in self?.isAsleep = true }
         }
-        nc.addObserver(forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in
+        nc.addObserver(forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main) { _ in
+            Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.isAsleep = false
                 self.refresh(.auto)
@@ -175,10 +175,13 @@ final class AppModel: ObservableObject {
     // MARK: - Network reachability
 
     private func startMonitoringNetwork() {
-        pathMonitor.pathUpdateHandler = { [weak self] path in
-            Task { @MainActor in
+        pathMonitor.pathUpdateHandler = { path in
+            // Compute the Sendable Bool here (off the main actor) so the Task only
+            // captures `online` + a weak self — not the NWPath, and not a `self`
+            // bound by the outer closure (which trips strict concurrency checking).
+            let online = path.status == .satisfied
+            Task { @MainActor [weak self] in
                 guard let self else { return }
-                let online = path.status == .satisfied
                 let cameOnline = online && !self.isOnline
                 self.isOnline = online
                 if cameOnline { self.refresh(.auto) }

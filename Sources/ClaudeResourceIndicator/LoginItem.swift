@@ -55,7 +55,10 @@ final class LoginItem: ObservableObject {
     // the menu's event-tracking loop (the switch lives in an open menu). Activate
     // first because this is an accessory (LSUIElement) app with no regular window.
     private func presentDeferred(title: String, message: String, offerSettings: Bool) {
-        DispatchQueue.main.async {
+        // Task { @MainActor } (not DispatchQueue.main.async) so the AppKit calls
+        // below are statically main-actor isolated under strict concurrency, while
+        // still deferring past the current menu-tracking turn.
+        Task { @MainActor in
             let alert = NSAlert()
             alert.messageText = title
             alert.informativeText = message
