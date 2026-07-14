@@ -18,12 +18,14 @@
 	<string>1</string>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.developer-tools</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>13.0</string>
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSHumanReadableCopyright</key>
-	<string>Unofficial. Reads Claude Code usage locally.</string>
+	<string>© 2026 Andrei Sudarikov. Unofficial; not affiliated with Anthropic.</string>
 	<key>NSSupportsAutomaticTermination</key>
 	<false/>
 	<key>NSSupportsSuddenTermination</key>

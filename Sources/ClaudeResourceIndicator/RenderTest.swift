@@ -3,6 +3,8 @@ import AppKit
 // Diagnostic: renders the menu-bar ring glyph to a PNG (enlarged) so the custom
 // CoreGraphics drawing can be inspected without Screen Recording permission.
 // Invoked via `--render-rings <path>`. Sibling to `--selftest`.
+// B1: compiled into DEBUG builds only — not shipped in release.
+#if DEBUG
 enum RenderTest {
 
     static func writeRings(to path: String) {
@@ -49,3 +51,4 @@ enum RenderTest {
         try? png.write(to: URL(fileURLWithPath: path))
     }
 }
+#endif

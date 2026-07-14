@@ -57,7 +57,29 @@ final class ToggleMenuItemView: NSView {
 // out of vibrancy — guarantees the accent shows.
 @MainActor
 final class MiniSwitch: NSControl {
-    var isOn: Bool = false { didSet { needsDisplay = true } }
+    var isOn: Bool = false {
+        didSet {
+            guard isOn != oldValue else { return }
+            // Slide only for user-driven toggles inside the open menu; set the
+            // initial (off-screen) state instantly so there's no phantom slide on
+            // first appearance (U5).
+            if window == nil {
+                knobProgress = isOn ? 1 : 0
+                needsDisplay = true
+            } else {
+                animateKnob(to: isOn ? 1 : 0)
+            }
+        }
+    }
+
+    // 0 = off (knob left), 1 = on (knob right). Drives both knob position and the
+    // track-color crossfade.
+    private var knobProgress: CGFloat = 0
+    private var animation: Timer?
+    private var animStart: CGFloat = 0
+    private var animTarget: CGFloat = 0
+    private var animStartDate = Date()
+    private let animDuration: TimeInterval = 0.15
 
     override var allowsVibrancy: Bool { false }
     override var intrinsicContentSize: NSSize { NSSize(width: 34, height: 20) }
@@ -68,12 +90,19 @@ final class MiniSwitch: NSControl {
                            y: (bounds.height - trackH) / 2,
                            width: trackW, height: trackH)
         let radius = track.height / 2
-        (isOn ? NSColor.controlAccentColor : NSColor.tertiaryLabelColor).setFill()
+
+        let off = NSColor.tertiaryLabelColor.usingColorSpace(.sRGB)
+        let on = NSColor.controlAccentColor.usingColorSpace(.sRGB)
+        let fill = off?.blended(withFraction: knobProgress, of: on ?? .controlAccentColor)
+            ?? (knobProgress >= 0.5 ? .controlAccentColor : .tertiaryLabelColor)
+        fill.setFill()
         NSBezierPath(roundedRect: track, xRadius: radius, yRadius: radius).fill()
 
         let inset: CGFloat = 2
         let knobD = track.height - inset * 2
-        let knobX = isOn ? track.maxX - inset - knobD : track.minX + inset
+        let knobXOff = track.minX + inset
+        let knobXOn = track.maxX - inset - knobD
+        let knobX = knobXOff + (knobXOn - knobXOff) * knobProgress
         let knobRect = NSRect(x: knobX, y: track.minY + inset, width: knobD, height: knobD)
 
         NSGraphicsContext.saveGraphicsState()
@@ -85,6 +114,29 @@ final class MiniSwitch: NSControl {
         NSColor.white.setFill()
         NSBezierPath(ovalIn: knobRect).fill()
         NSGraphicsContext.restoreGraphicsState()
+    }
+
+    private func animateKnob(to target: CGFloat) {
+        animation?.invalidate()
+        animStart = knobProgress
+        animTarget = target
+        animStartDate = Date()
+        // Target-action (not a closure) so the tick stays on the main actor with no
+        // Sendable-closure hazard; .common mode so it keeps firing while the menu's
+        // event-tracking loop runs. Invalidated on completion, breaking the
+        // timer→self retain.
+        let timer = Timer(timeInterval: 1.0 / 60.0, target: self,
+                          selector: #selector(stepAnimation), userInfo: nil, repeats: true)
+        RunLoop.current.add(timer, forMode: .common)
+        animation = timer
+    }
+
+    @objc private func stepAnimation() {
+        let t = min(1, Date().timeIntervalSince(animStartDate) / animDuration)
+        let eased = t * t * (3 - 2 * t)   // smoothstep
+        knobProgress = animStart + (animTarget - animStart) * CGFloat(eased)
+        needsDisplay = true
+        if t >= 1 { animation?.invalidate(); animation = nil }
     }
 
     override func mouseDown(with event: NSEvent) {
