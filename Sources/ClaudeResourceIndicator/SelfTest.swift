@@ -7,6 +7,7 @@ import Foundation
 enum SelfTest {
     static func run() {
         print("== Claude Resource Indicator self-test ==")
+        verifyColorMode()
         let semaphore = DispatchSemaphore(value: 0)
         Task.detached {
             let state = await UsageService.fetch(lastKnown: nil)
@@ -14,6 +15,20 @@ enum SelfTest {
             semaphore.signal()
         }
         semaphore.wait()
+    }
+
+    // Reports the detected OS version and which percentage-text color it selects. Uses an
+    // explicit PASS/FAIL print rather than `assert` so the check still runs in the release
+    // self-test build.
+    private static func verifyColorMode() {
+        let mode = SystemVersion.usesReadableShades
+            ? "default label color (below Tahoe)"
+            : "traffic-light color (Tahoe+)"
+        print("macOS: \(SystemVersion.description)  (major \(SystemVersion.major))")
+        print("Bar percentage text: \(mode)")
+
+        let passed = SystemVersion.usesReadableShades == (SystemVersion.major < 26)
+        print("  [\(passed ? "PASS" : "FAIL")] mode gate matches major < 26")
     }
 
     private static let stamp: DateFormatter = {

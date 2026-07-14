@@ -219,6 +219,13 @@ struct BarRow: View {
 
     private var color: Color { Theme.color(forUtilization: value.utilization) }
 
+    // The traffic-light percentage renders too lightly against Sequoia's lighter menu
+    // panel. Below Tahoe, fall back to the default label color (black/white per theme)
+    // for the number; the bar itself keeps its traffic-light color.
+    private var percentColor: Color {
+        SystemVersion.usesReadableShades ? .primary : color
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 4) {
@@ -236,7 +243,7 @@ struct BarRow: View {
                 Text(percentText(value.utilization))
                     .font(.subheadline)
                     .monospacedDigit()
-                    .foregroundStyle(color)
+                    .foregroundStyle(percentColor)
             }
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
